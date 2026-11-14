@@ -79,6 +79,10 @@ class MainActivity : ComponentActivity() {
 
     private val prefs by lazy { getSharedPreferences("wwl", Context.MODE_PRIVATE) }
 
+    private val inviteOverrideScript: String by lazy {
+        assets.open("invite_override.js").bufferedReader().use { it.readText() }
+    }
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
@@ -247,6 +251,7 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 view?.evaluateJavascript(HIDE_FULLSCREEN_JS, null)
+                installInviteOverride()
                 injectAdvertisedHost()
                 applyTheme()
             }
@@ -367,12 +372,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun installInviteOverride() {
+        if (!::webView.isInitialized) {
+            return
+        }
+        webView.evaluateJavascript(inviteOverrideScript, null)
+    }
+
     private fun injectAdvertisedHost() {
         if (!::webView.isInitialized) {
             return
         }
-        val value = advertisedHost?.let { JSONObject.quote(it) } ?: "null"
-        webView.evaluateJavascript("window.WWL_ADVERTISE = $value;", null)
+        val host = advertisedHost
+        val advertise = host?.let { JSONObject.quote(it) } ?: "null"
+        val invite = host?.let { JSONObject.quote("http://$it") } ?: "null"
+        webView.evaluateJavascript(
+            "window.WWL_ADVERTISE = $advertise;" +
+                "window.WWL_INVITE_URL = $invite;" +
+                "window.__wwlRefreshInvite && window.__wwlRefreshInvite();",
+            null,
+        )
     }
 
     private fun registerThemeObserver() {
@@ -519,6 +538,14 @@ class MainActivity : ComponentActivity() {
         @JavascriptInterface
         fun copyText(text: String) {
             copyText("Invite", text)
+        }
+
+        @JavascriptInterface
+        fun copyInvite(text: String) {
+            copyText("Invite", text)
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, R.string.invite_copied, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

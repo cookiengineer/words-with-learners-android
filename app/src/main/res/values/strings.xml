@@ -13,6 +13,7 @@
     <string name="action_copy_logs">Copy logs</string>
     <string name="action_start_server">Start server</string>
     <string name="logs_copied">Server logs copied</string>
+    <string name="invite_copied">Invite message copied</string>
 
     <string name="notification_channel_name">Local game server</string>
     <string name="notification_channel_description">Keeps the local Words with Learners server running in the background.</string>

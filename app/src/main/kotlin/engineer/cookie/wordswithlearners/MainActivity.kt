@@ -9,12 +9,18 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.database.ContentObserver
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.provider.Settings
 import android.text.method.ScrollingMovementMethod
 import android.view.View
 import android.webkit.CookieManager
@@ -64,6 +70,12 @@ class MainActivity : ComponentActivity() {
     private var currentPort: Int? = null
     private var advertisedHost: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private val themeObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean, uri: Uri?) {
+            applyTheme()
+        }
+    }
 
     private val prefs by lazy { getSharedPreferences("wwl", Context.MODE_PRIVATE) }
 
@@ -151,10 +163,13 @@ class MainActivity : ComponentActivity() {
             bound = true
         }
         registerNetworkCallback()
+        registerThemeObserver()
+        applyTheme()
     }
 
     override fun onStop() {
         unregisterNetworkCallback()
+        unregisterThemeObserver()
         stateJob?.cancel()
         stateJob = null
         if (bound) {
@@ -173,6 +188,11 @@ class MainActivity : ComponentActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyTheme()
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
@@ -194,6 +214,7 @@ class MainActivity : ComponentActivity() {
             displayZoomControls = false
         }
         view.overScrollMode = View.OVER_SCROLL_NEVER
+        view.setBackgroundColor(themeBackgroundColor(isDarkThemeActive()))
         view.addJavascriptInterface(ClipboardBridge(), "WWLAndroid")
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
@@ -218,10 +239,16 @@ class MainActivity : ComponentActivity() {
                 return true
             }
 
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                super.onPageCommitVisible(view, url)
+                applyTheme()
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 view?.evaluateJavascript(HIDE_FULLSCREEN_JS, null)
                 injectAdvertisedHost()
+                applyTheme()
             }
 
             override fun onReceivedError(
@@ -348,6 +375,51 @@ class MainActivity : ComponentActivity() {
         webView.evaluateJavascript("window.WWL_ADVERTISE = $value;", null)
     }
 
+    private fun registerThemeObserver() {
+        val resolver = contentResolver
+        resolver.registerContentObserver(
+            Settings.Secure.getUriFor(SETTING_NIGHT_DISPLAY_ACTIVATED),
+            false,
+            themeObserver,
+        )
+        resolver.registerContentObserver(
+            Settings.Secure.getUriFor(SETTING_NIGHT_DISPLAY_AUTO_MODE),
+            false,
+            themeObserver,
+        )
+    }
+
+    private fun unregisterThemeObserver() {
+        contentResolver.unregisterContentObserver(themeObserver)
+    }
+
+    private fun isNightDisplayActive(): Boolean = runCatching {
+        Settings.Secure.getInt(contentResolver, SETTING_NIGHT_DISPLAY_ACTIVATED, 0) == 1
+    }.getOrDefault(false)
+
+    private fun isSystemDarkMode(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+
+    private fun isDarkThemeActive(): Boolean = isNightDisplayActive() || isSystemDarkMode()
+
+    private fun themeBackgroundColor(dark: Boolean): Int =
+        if (dark) 0xFF14120F.toInt() else 0xFFF4F1EA.toInt()
+
+    private fun applyTheme() {
+        if (!::webView.isInitialized) {
+            return
+        }
+        val dark = isDarkThemeActive()
+        webView.setBackgroundColor(themeBackgroundColor(dark))
+        val script = if (dark) {
+            "document.documentElement.dataset.theme='dark';"
+        } else {
+            "delete document.documentElement.dataset.theme;"
+        }
+        webView.evaluateJavascript(script, null)
+    }
+
     private fun renderState(state: ServerState) {
         currentPort = (state as? ServerState.Running)?.port
 
@@ -452,6 +524,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val PREF_WEBVIEW_VERSION = "webview_version"
+        private const val SETTING_NIGHT_DISPLAY_ACTIVATED = "night_display_activated"
+        private const val SETTING_NIGHT_DISPLAY_AUTO_MODE = "night_display_auto_mode"
         private const val HIDE_FULLSCREEN_JS =
             "(function(){var b=document.getElementById('toggle-fullscreen');if(b){b.style.display='none';}})();"
     }

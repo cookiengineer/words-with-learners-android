@@ -6,6 +6,8 @@ The Android app wraps the game's Go server in a local foreground service and dis
 WebView. The server listens on an ephemeral port and is reachable from other devices on the same
 Wi-Fi or LAN networks, and allows to invite other players to locally join for a game.
 
+![Words with Learners on Android](screenshot.jpg)
+
 ## Features
 
 - Local game server embedded in the APK.
